@@ -21,4 +21,11 @@ def get_entity_by_key(data_kind, key):
 def get_app_credentials():
     print("hi")
     entity = get_entity_by_key("OauthCredentials", f"app_credentials_{APP_ID}")
-    return {'client_id': APP_ID, 'client_secret': entity['client_secret']}
+    return {'client_id': APP_ID, 'client_secret': entity['client_secret'], 'redirect_urls': entity['redirect_urls']}
+
+def store_user_refresh_token(user, refresh_token):
+    client = _datastore_client()
+    user_credentials_entity = datastore.Entity(key=client.key('OauthCredentials', f"user_credentials_{user}"))
+    user_credentials_entity.update({'refresh_token': refresh_token})
+    client.put(user_credentials_entity)
+    return True
