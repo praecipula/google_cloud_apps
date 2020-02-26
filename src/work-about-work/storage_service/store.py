@@ -14,7 +14,9 @@ def get_entity_by_key(data_kind, key):
     app_key = client.key(data_kind, key)
     query.key_filter(app_key, '=')
     matches = list(query.fetch())
-    assert len(matches) == 1, "Expected to fetch single value by key"
+    assert len(matches) <= 1, "Expected to fetch at most a single value by key"
+    if len(matches) == 0:
+        return None
     return matches[0]
 
 
@@ -25,7 +27,17 @@ def get_app_credentials():
 
 def store_user_refresh_token(user, refresh_token):
     client = _datastore_client()
-    user_credentials_entity = datastore.Entity(key=client.key('OauthCredentials', f"user_credentials_{user}"))
+    user_credentials_entity = get_entity_by_key('OauthCredentials', f"user_credentials_{user}")
+    if not user_credentials_entity:
+        user_credentials_entity = datastore.Entity(key=client.key('OauthCredentials', f"user_credentials_{user}"))
     user_credentials_entity.update({'refresh_token': refresh_token})
     client.put(user_credentials_entity)
     return True
+
+def store_user_access_token(user, access_token, expire_epoch_time):
+    client = _datastore_client()
+    user_credentials_entity = get_entity_by_key('OauthCredentials', f"user_credentials_{user}")
+    if not user_credentials_entity:
+        user_credentials_entity = datastore.Entity(key=client.key('OauthCredentials', f"user_credentials_{user}"))
+    user_credentials_entity.update({'access_token': access_token, 'expire_time': expire_epoch_time})
+    client.put(user_credentials_entity)

@@ -1,6 +1,7 @@
 from flask import Blueprint,render_template,request
-from storage_service.store import get_app_credentials,store_user_refresh_token
+from storage_service.store import get_app_credentials,store_user_refresh_token,store_user_access_token
 from environment_service.environment import Environment,get_request_environment
+from environment_service.utilities import utc_from_epoch_ms
 import asana
 
 all_credentials = Blueprint('all_credentials', __name__, template_folder='templates')
@@ -16,8 +17,8 @@ def exchange_authorization_code():
     authorization_code = request.args.get("code")
     # TODO: should verify the state parameter
     token = client.session.fetch_token(code=authorization_code)
-    import pdb; pdb.set_trace()
     store_user_refresh_token(token['data']['gid'], token['refresh_token'])
+    store_user_access_token(token['data']['gid'], token['access_token'], utc_from_epoch_ms(token['expires_at']))
     return "Got an authorized client!"
     
 
