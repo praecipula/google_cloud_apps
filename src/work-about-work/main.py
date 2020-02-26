@@ -22,6 +22,8 @@ app = Flask(__name__)
 
 
 
+from auth_credentials_store.all_credentials import all_credentials
+app.register_blueprint(all_credentials)
 from quick_follow_up.follow_up import follow_up
 app.register_blueprint(follow_up, url_prefix="/follow_up")
 
