@@ -30,9 +30,10 @@ def exchange_authorization_code():
     return resp
 
 def exchange_refresh_token(client):
+    app.logger.debug("Exchanging refresh token")
     user_id = request.cookies.get('asana_user_id')
-    client = get_asana_client_for_user(user_id)
-    token = client.session.refresh_token()
+    # TODO: this feels like we're calling an internal method. Hm.
+    token = client.session.refresh_token(client.session.token_url, refresh_token=client.session.token['refresh_token'], client_id=client.session.client_id, client_secret = client.session.client_secret)
     store.store_user_refresh_token(user_id, token['refresh_token'])
     store.store_user_access_token(user_id, token['access_token'], utc_from_epoch_ms(token['expires_at']))
     
@@ -65,7 +66,7 @@ def get_asana_client_for_user(user_id):
     user_credentials = store.get_or_construct_user_credentials(user_id)
     if 'access_token' in user_credentials:
         if 'expire_time' in user_credentials and user_credentials['expire_time'] > utc_from_epoch_ms(utc_now().timestamp() + 3 * 60):
-            app.logger.debug("Valid access token found--logged in")
+            app.logger.debug(f"Valid access token found--logged in. Credentials expire: {user_credentials['expire_time']}")
             # Access token is present and will be valid for some time
             client = asana.Client.oauth(client_id = application_credentials['client_id'],
                     client_secret = application_credentials['client_secret'],
@@ -78,8 +79,7 @@ def get_asana_client_for_user(user_id):
                     )
         else:
             # Exchange the refresh token again, then return
-            app.logger.debug("Access token expired, exchanging refresh token")
-            application_credentials = exchange_refresh_token()
+            app.logger.debug("Access token expired")
             client = asana.Client.oauth(client_id = application_credentials['client_id'],
                     client_secret = application_credentials['client_secret'],
                     redirect_uri=redirect_uri,
@@ -88,7 +88,7 @@ def get_asana_client_for_user(user_id):
                         "type": "bearer"
                         }
                     )
-            _client.refresh_token()
+            exchange_refresh_token(client)
     else:
         app.logger.info("Full refresh of credentials from code: initial auth or previous auth token deleted")
         # This will start a second request that we want to be able to get the global variable for.
