@@ -3,5 +3,8 @@
 from datetime import datetime
 import pytz
 
+def utc_now():
+    return datetime.utcnow().replace(tzinfo=pytz.utc)
+
 def utc_from_epoch_ms(unix_timestamp):
     return datetime.utcfromtimestamp(unix_timestamp).replace(tzinfo=pytz.utc)

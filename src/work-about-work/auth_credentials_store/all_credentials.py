@@ -2,7 +2,8 @@ from flask import Blueprint,render_template,request,make_response
 from flask import current_app as app
 from storage_service import store
 from environment_service.environment import Environment,get_request_environment
-from environment_service.utilities import utc_from_epoch_ms
+from environment_service.utilities import utc_from_epoch_ms,utc_now
+from datetime import datetime
 import asana
 
 all_credentials = Blueprint('all_credentials', __name__, template_folder='templates')
@@ -63,7 +64,8 @@ def get_asana_client_for_user(user_id):
     # We could match on the base url in the redirect list, which might be better, but we need to have the env service anyway...
     user_credentials = store.get_or_construct_user_credentials(user_id)
     if 'access_token' in user_credentials:
-        if 'expire_time' in user_credentials and user_credentials['expire_time'] > datetime.utcnow() + 3 * 60 * 1000:
+        if 'expire_time' in user_credentials and user_credentials['expire_time'] > utc_from_epoch_ms(utc_now().timestamp() + 3 * 60):
+            app.logger.debug("Valid access token found--logged in")
             # Access token is present and will be valid for some time
             client = asana.Client.oauth(client_id = application_credentials['client_id'],
                     client_secret = application_credentials['client_secret'],
@@ -76,6 +78,7 @@ def get_asana_client_for_user(user_id):
                     )
         else:
             # Exchange the refresh token again, then return
+            app.logger.debug("Access token expired, exchanging refresh token")
             application_credentials = exchange_refresh_token()
             client = asana.Client.oauth(client_id = application_credentials['client_id'],
                     client_secret = application_credentials['client_secret'],
