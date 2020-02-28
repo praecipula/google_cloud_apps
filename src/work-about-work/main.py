@@ -15,6 +15,9 @@
 # [START gae_python37_app]
 from flask import Flask
 import logging, logging.config
+from flask_httpauth import HTTPBasicAuth
+from werkzeug.security import generate_password_hash, check_password_hash
+from storage_service import store
 
 logging.config.dictConfig({
     'version': 1,
@@ -41,7 +44,7 @@ logging.getLogger('root').info("Logging init!")
 # If `entrypoint` is not defined in app.yaml, App Engine will look for an app
 # called `app` in `main.py`.
 app = Flask(__name__)
-
+auth = HTTPBasicAuth()
 
 
 from auth_credentials_store.all_credentials import all_credentials
@@ -49,10 +52,19 @@ app.register_blueprint(all_credentials)
 from quick_follow_up.follow_up import follow_up
 app.register_blueprint(follow_up, url_prefix="/follow_up")
 
+
+@auth.verify_password
+def verify_password(username, password):
+    # 1 salt for the app. Yes, I understand this is a bad salting scheme and it should be per user :)
+    app_random_salt="16bea2eea75b1dcaf49f2760d526646b9f9b89f9"
+    if not username:
+        return False
+    return check_password_hash(store.get_basic_auth_hash(username), password + app_random_salt)
+
 @app.route('/')
-def hello():
-    """Return a friendly HTTP greeting."""
-    return 'Hello World!'
+@auth.login_required
+def index():
+    return f"Hello, {auth.username()}!"
 
 
 if __name__ == '__main__':

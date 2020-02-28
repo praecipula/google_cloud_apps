@@ -55,3 +55,7 @@ def store_user_access_token(user, access_token, expire_epoch_time):
     user_credentials_entity.update({'access_token': access_token, 'expire_time': expire_epoch_time})
     client.put(user_credentials_entity)
     return user_credentials_entity
+
+def get_basic_auth_hash(username):
+    entity = get_entity_by_key("BasicAuthCredentials", username)
+    return entity['salted_hash']

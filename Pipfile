@@ -1,0 +1,16 @@
+[[source]]
+name = "pypi"
+url = "https://pypi.org/simple"
+verify_ssl = true
+
+[dev-packages]
+
+[packages]
+google-cloud-core = "*"
+Flask = "==1.1.1"
+google-cloud-datastore = "*"
+asana = "*"
+flask-httpauth = "*"
+
+[requires]
+python_version = "3.7"
