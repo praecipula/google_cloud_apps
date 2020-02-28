@@ -8,6 +8,12 @@ APP_ID=1163630087121140
 def _datastore_client():
     return datastore.Client.from_service_account_json("/Users/mattbramlage/sandbox/google_cloud_apps/credentials_not_tracked/work_about_work_creds.json", namespace="credentials")
 
+def _app_credentials_key():
+    return f"app_credentials_{APP_ID}"
+
+def _user_credentials_key_for_id(user_id):
+    return f"user_credentials_{user_id}"
+
 def get_entity_by_key(data_kind, key):
     client = _datastore_client()
     query = client.query(kind=data_kind)
@@ -21,23 +27,31 @@ def get_entity_by_key(data_kind, key):
 
 
 def get_app_credentials():
-    print("hi")
-    entity = get_entity_by_key("OauthCredentials", f"app_credentials_{APP_ID}")
+    entity = get_entity_by_key("OauthCredentials", _app_credentials_key())
+    assert entity != None, "You need to bootstrap the app credentials in the datastore: https://console.cloud.google.com/datastore/entities"
     return {'client_id': APP_ID, 'client_secret': entity['client_secret'], 'redirect_urls': entity['redirect_urls']}
+
+def get_or_construct_user_credentials(user):
+    entity = get_entity_by_key("OauthCredentials", _user_credentials_key_for_id(user))
+    if not entity:
+        entity = datastore.Entity(key=_datastore_client().key('OauthCredentials', _user_credentials_key_for_id(user)))
+    return entity
 
 def store_user_refresh_token(user, refresh_token):
     client = _datastore_client()
-    user_credentials_entity = get_entity_by_key('OauthCredentials', f"user_credentials_{user}")
-    if not user_credentials_entity:
-        user_credentials_entity = datastore.Entity(key=client.key('OauthCredentials', f"user_credentials_{user}"))
+    user_credentials_entity = get_or_construct_user_credentials(user)
     user_credentials_entity.update({'refresh_token': refresh_token})
     client.put(user_credentials_entity)
-    return True
+    return user_credentials_entity
+
+def get_user_access_token(user):
+    client = _datastore_client()
+    user_credentials_entity = get_entity_by_key("OauthCredentials", _user_credentials_key_for_id(user))
+    return user_credentials_entity
 
 def store_user_access_token(user, access_token, expire_epoch_time):
     client = _datastore_client()
-    user_credentials_entity = get_entity_by_key('OauthCredentials', f"user_credentials_{user}")
-    if not user_credentials_entity:
-        user_credentials_entity = datastore.Entity(key=client.key('OauthCredentials', f"user_credentials_{user}"))
+    user_credentials_entity = get_or_construct_user_credentials(user)
     user_credentials_entity.update({'access_token': access_token, 'expire_time': expire_epoch_time})
     client.put(user_credentials_entity)
+    return user_credentials_entity

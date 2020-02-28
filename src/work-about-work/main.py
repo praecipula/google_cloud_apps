@@ -14,7 +14,29 @@
 
 # [START gae_python37_app]
 from flask import Flask
+import logging, logging.config
 
+logging.config.dictConfig({
+    'version': 1,
+    'formatters': {
+        'default': {
+            'format': '[%(asctime)s] %(levelname)s %(filename)s:%(lineno)d|| %(message)s',
+            }
+        },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'level': 'DEBUG',
+            'stream': 'ext://sys.stdout',
+            }
+        },
+    'root': {
+        'level': 'DEBUG',
+        'handlers': ['console'],
+        }
+    })
+
+logging.getLogger('root').info("Logging init!")
 
 # If `entrypoint` is not defined in app.yaml, App Engine will look for an app
 # called `app` in `main.py`.
