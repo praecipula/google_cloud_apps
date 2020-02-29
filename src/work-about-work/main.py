@@ -14,10 +14,17 @@
 
 # [START gae_python37_app]
 from flask import Flask
+import google.cloud.logging
 import logging, logging.config
 from flask_httpauth import HTTPBasicAuth
 from werkzeug.security import generate_password_hash, check_password_hash
 from storage_service import store
+from environment_service.environment import Environment,get_environment
+import os
+
+if get_environment() == Environment.PRODUCTION:
+    client = google.cloud.logging.Client()
+    client.setup_logging()
 
 logging.config.dictConfig({
     'version': 1,
@@ -66,6 +73,10 @@ def verify_password(username, password):
 def index():
     return f"Hello, {auth.username()}!"
 
+
+@app.route('/ping')
+def info():
+    return str(get_environment())
 
 if __name__ == '__main__':
     # This is used when running locally only. When deploying to Google App

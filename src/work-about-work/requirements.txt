@@ -1,1 +1,6 @@
 Flask==1.1.1
+google-cloud-datastore
+google-cloud-logging
+asana
+flask-httpauth
+

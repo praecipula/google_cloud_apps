@@ -1,18 +1,26 @@
-from flask import Blueprint,render_template,request,make_response
+from flask import Blueprint,render_template,request,make_response,redirect
 from flask import current_app as app
 from storage_service import store
-from environment_service.environment import Environment,get_request_environment
+from environment_service.environment import Environment,get_environment
 from environment_service.utilities import utc_from_epoch_ms,utc_now
 from datetime import datetime
 import asana
 
 all_credentials = Blueprint('all_credentials', __name__, template_folder='templates')
 
+
+### Asana app and user credentials
+
 @all_credentials.route("/credential_info", methods=['GET'])
 def show_credentials_summary():
     user_id = request.cookies.get('asana_user_id')
     client = get_asana_client_for_user(user_id)
-    return client.users.me()
+    # TODO: Hack
+    print(type(client))
+    if type(client) == str:
+        return redirect(client)
+    else:
+        return client.users.me()
 
 @all_credentials.route("/asana_oauth_redirect", methods=['GET'])
 def exchange_authorization_code():
@@ -23,7 +31,6 @@ def exchange_authorization_code():
     client = get_asana_client_for_code(authorization_code)
     # After the exchange we can introspect the token for some useful data.
     # TODO: this isn't very law-of-demeter-y
-    import pdb; pdb.set_trace()
     user_id = client.session.token['data']['gid']
     resp = make_response("Got an authorized client!")
     resp.set_cookie("asana_user_id", user_id)
@@ -43,7 +50,9 @@ def exchange_refresh_token(client):
 def get_asana_client_for_code(authorization_code):
     app.logger.info("Exchanging authorization code for a token")
     application_credentials = store.get_app_credentials()
-    environment = get_request_environment(request)
+    environment = get_environment()
+    if environment == Environment.PRODUCTION:
+        redirect_uri = application_credentials['redirect_urls'][1]
     if environment == Environment.DEVELOPMENT:
         redirect_uri = application_credentials['redirect_urls'][0]
     client = asana.Client.oauth(client_id = application_credentials['client_id'], client_secret = application_credentials['client_secret'], redirect_uri=redirect_uri)
@@ -56,9 +65,11 @@ def get_asana_client_for_code(authorization_code):
 def get_asana_client_for_user(user_id):
     # TODO: this is reauthing every time. Store this per user.
     application_credentials = store.get_app_credentials()
-    environment = get_request_environment(request)
+    environment = get_environment()
     redirect_uri = None
     client = None
+    if environment == Environment.PRODUCTION:
+        redirect_uri = application_credentials['redirect_urls'][1]
     if environment == Environment.DEVELOPMENT:
         redirect_uri = application_credentials['redirect_urls'][0]
     # TODO: brittle. Don't make this dependent on the ordering.
@@ -95,6 +106,6 @@ def get_asana_client_for_user(user_id):
         client = asana.Client.oauth(client_id = application_credentials['client_id'], client_secret = application_credentials['client_secret'], redirect_uri=redirect_uri)
         (url, state) = client.session.authorization_url()
         # TODO: this works, but isn't complete.
-        import webbrowser; webbrowser.open(url)
+        return url
     return client
 

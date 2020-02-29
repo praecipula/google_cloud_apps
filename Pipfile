@@ -11,6 +11,7 @@ Flask = "==1.1.1"
 google-cloud-datastore = "*"
 asana = "*"
 flask-httpauth = "*"
+google-cloud-logging = "*"
 
 [requires]
 python_version = "3.7"

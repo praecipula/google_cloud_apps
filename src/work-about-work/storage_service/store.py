@@ -1,12 +1,21 @@
+import logging
 from google.cloud import datastore
 import google.cloud.exceptions
+from environment_service.environment import Environment,get_environment
+import os
 
 # This is a safe number to expose;
 # it's the entrypoint for all successive loads from the datastore.
 APP_ID=1163630087121140
 
 def _datastore_client():
-    return datastore.Client.from_service_account_json("/Users/mattbramlage/sandbox/google_cloud_apps/credentials_not_tracked/work_about_work_creds.json", namespace="credentials")
+
+    environment = get_environment()
+    if environment == Environment.DEVELOPMENT:
+        return datastore.Client.from_service_account_json("/Users/mattbramlage/sandbox/google_cloud_apps/credentials_not_tracked/work_about_work_creds.json", namespace="credentials")
+    elif environment == Environment.PRODUCTION:
+        client = datastore.Client(namespace="credentials")
+        return client
 
 def _app_credentials_key():
     return f"app_credentials_{APP_ID}"
@@ -22,6 +31,7 @@ def get_entity_by_key(data_kind, key):
     matches = list(query.fetch())
     assert len(matches) <= 1, "Expected to fetch at most a single value by key"
     if len(matches) == 0:
+        logging.getLogger('root').warn(f"Fetch witk kind {data_kind} and key {key} returned no results")
         return None
     return matches[0]
 
@@ -57,5 +67,6 @@ def store_user_access_token(user, access_token, expire_epoch_time):
     return user_credentials_entity
 
 def get_basic_auth_hash(username):
+    logging.getLogger('root').info(f"Getting auth credentials for {username} from store")
     entity = get_entity_by_key("BasicAuthCredentials", username)
     return entity['salted_hash']
