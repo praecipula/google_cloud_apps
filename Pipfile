@@ -9,6 +9,11 @@ verify_ssl = true
 flask = "*"
 sqlalchemy = ">=1.4"
 sqlalchemy-bigquery = ">=1.6"
+google-cloud-core = "*"
+google-cloud-datastore = "*"
+asana = "*"
+flask-httpauth = "*"
+google-cloud-logging = "*"
 
 [requires]
 python_version = "3.10"

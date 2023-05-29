@@ -102,5 +102,11 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+#Vim files
 *.swp
 *.swo
+
+# Don't track the credentials (I should upload them to my private GH account)
+/credentials/*
+# Don't track Google's sdk; rather https://cloud.google.com/sdk/docs
+/google-cloud-sdk/*
