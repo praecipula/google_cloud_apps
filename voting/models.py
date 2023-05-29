@@ -68,7 +68,7 @@ class Upsertable(Queryable):
         return instance
 
 '''
-This is a "regular" many-to-many join in sqlalchemy (https://docs.sqlalchemy.org/en/20/orm/basic_relationships.html#setting-bi-directional-many-to-many)
+This is a "regular" association table for a transparent many-to-many join in sqlalchemy (https://docs.sqlalchemy.org/en/20/orm/basic_relationships.html#setting-bi-directional-many-to-many)
 Each candidate can be in multiple elections and each election has multiple candidates.
 '''
 candidate_election_join_table = Table(
@@ -76,6 +76,18 @@ candidate_election_join_table = Table(
         Base.metadata,
         Column("candidate_id", ForeignKey("voting.candidates.id"), primary_key=True),
         Column("election_id", ForeignKey("voting.elections.id"), primary_key=True)
+        )
+
+'''
+This is a "regular" association table for a transparent many-to-many join in sqlalchemy (https://docs.sqlalchemy.org/en/20/orm/basic_relationships.html#setting-bi-directional-many-to-many)
+Each candidate can be in multiple categories and each category has multiple candidates.
+'''
+
+candidate_category_join_table = Table(
+        "voting.candidate_categories",
+        Base.metadata,
+        Column("candidate_id", ForeignKey("voting.candidates.id"), primary_key=True),
+        Column("category_id", ForeignKey("voting.categories.id"), primary_key=True)
         )
 
 class Candidate(Base, Upsertable, Trashable, CreationTimeable):
@@ -86,6 +98,7 @@ class Candidate(Base, Upsertable, Trashable, CreationTimeable):
     id = Column(String, primary_key=True, server_default=func.generate_uuid())
     name = Column(String, nullable=False, unique=True)
     elections = relationship("Election", secondary=candidate_election_join_table, back_populates="candidates")
+    categories = relationship("Category", secondary=candidate_category_join_table, back_populates="candidates")
     votes = relationship("Vote", back_populates="candidate")
 
 
@@ -96,7 +109,7 @@ class ElectionState(Base, Upsertable, Trashable, CreationTimeable):
     '''
 
     _upsert_key = "name"
-    __tablename__ = "voting.election_state"
+    __tablename__ = "voting.election_states"
     id = Column(String, primary_key=True, server_default=func.generate_uuid())
     name = Column(String, nullable = False)
 
@@ -118,7 +131,7 @@ class Election(Base, Queryable, Trashable, CreationTimeable):
     votes = relationship("Vote", back_populates="election")
 
 
-class CandidateCategory(Base, Upsertable, Trashable, CreationTimeable):
+class Category(Base, Upsertable, Trashable, CreationTimeable):
     '''
     To simplify creating a new Election each Candidate is mapped to a CandidateCategory. We can just therefore ask to
     instantiate a new "Restaurant" category, say, and a new Election will be created with all Candidates that are in that
@@ -126,10 +139,11 @@ class CandidateCategory(Base, Upsertable, Trashable, CreationTimeable):
     '''
 
     _upsert_key = "name"
-    __tablename__ = "voting.candidate_category"
+    __tablename__ = "voting.categories"
 
     id = Column(String, primary_key=True, server_default=func.generate_uuid())
-    name = Column(String, nullable=False)
+    name = Column(String, nullable=False, unique=True)
+    candidates = relationship("Candidate", secondary=candidate_category_join_table, back_populates="categories")
 
 class Vote(Base, Queryable, Trashable, CreationTimeable):
     '''
