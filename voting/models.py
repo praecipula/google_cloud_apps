@@ -1,160 +1,190 @@
+import datetime
 import json
-import sqlalchemy
-from typing import Set, List
-from sqlalchemy import Table, Column, Integer, String, DateTime, Boolean, ForeignKey, Index, event, select
-from sqlalchemy.orm import relationship, backref, declarative_base, sessionmaker
-from sqlalchemy.sql import func, expression
-
-Base = declarative_base()
+from google.cloud import firestore
+from google.oauth2.service_account import Credentials
 
 class Storage():
     @classmethod
     def load_credentials(cls):
         credentials=None
         with open("/Users/matt/Development/google_cloud_apps/credentials/google_cloud_apps_manager.json") as f:
-            credentials=json.loads(f.read())
+            cred_info=json.loads(f.read())
+            credentials = Credentials.from_service_account_info(cred_info)
         return credentials
         
     @classmethod
-    def initialize_db(cls):
-        cls._engine = sqlalchemy.engine.create_engine('bigquery://', credentials_info=Storage.load_credentials())
-        Session = sessionmaker()
-        Session.configure(bind=cls._engine)
-        cls._session = Session()
-        # Is this idempotent with BigQuery or do we have to check for migrations?
-        Base.metadata.create_all(cls._engine)
+    def db(cls):
+        if not hasattr(cls, '_db'):
+            cls._db = firestore.Client(credentials=cls.load_credentials())
+        return cls._db
+
+#doc_ref = Storage.db().collection('users').document('alovelace')
+#doc_ref.set({
+#    'first': 'Ada',
+#    'last': 'Lovelace',
+#    'born': 1815
+#})
+
+class ModelBase:
 
     @classmethod
-    def session(cls):
-        if not hasattr(cls, "_session"):
-            print("Calling initialize()")
-            Storage.initialize_db()
-        return cls._session
+    def collection_name(cls):
+        raise "Subclasses should implement"
 
-
-
-class Queryable():
     @classmethod
-    def query(cls):
-        return Storage.session().query(cls)
+    def collection(cls):
+        return Storage.db().collection(cls.collection_name())
 
-class Trashable():
-    trashed = Column(Boolean, server_default=expression.false())
-    def trash(self):
-        # This is abstract because subclasses might need to trash relationship classes in a business-logicy way
-        # (e.g. an Election being trashed should also trash votes but not Candidates).
+    def __init__(self, document_id, *args, **kwargs): 
+        self._document_id = document_id
+        # There are some fields that should only be set on creation, like creation time.
+        self._snapshot = None
+        # Any attributes that aren't mapped to class properties
+        self._additional_attributes = {}
+
+
+    ## Writing / persistence methods
+
+    def before_serialize(self, d = {}):
+        '''
+        Always returns a copy of the input dict.
+        '''
+        if not self._snapshot:
+            # New document
+            new_d = d.copy()
+            new_d.update({"t_crte": firestore.SERVER_TIMESTAMP})
+            return new_d
+        return d.copy()
+
+    def after_serialize(self, d):
+        '''
+        Always returns a copy of the input dict.
+        '''
+        return d.copy()
+
+    def serialize(self):
+        '''
+        Serialize, including before and after callbacks.
+        '''
+        d = self.before_serialize()
+        # Delegated method to subclass implementers
+        d = self.to_dict(d)
+        d = self.after_serialize(d)
+        return d
+
+    def to_dict(self, d):
+        '''
+        This is the method subclasses should implement in order to convert their properties to a dictionary.
+        '''
         raise "Subclasses must implement"
 
-class CreationTimeable():
-    time_created = Column(DateTime(timezone=True), server_default=func.current_datetime())
+    def save(self):
+        dictionary = self.serialize()
+        if not self._snapshot:
+            # If this raises it's because we think we're inserting a new document but it exists.
+            # IMPORTANT TODO: there can be a race condition where we check the DB for existance, and
+            # then between that check and creation a new document gets made; that will cause create
+            # to throw.
+            # To handle that we should merge the trying-to-create-now doc onto the existing one, including
+            # not overwriting the creation time, for instance, and then do an update.
+            returnval = self.__class__.collection().document(self._document_id).create(dictionary)
+            # TODO: check this for errors?
 
-class Upsertable(Queryable):
-    _upsert_key = None
+            # Firestore returns metadata about the operation, but, unhelpfully, not the document itself.
+            # This means every write will need to get a re-read, unfortunately - there's no other way I know
+            # of to get e.g. server side values like server timestamps.
+            self.read()
+        else:
+            # Updating existing doc
+            returnval = self.__class__.collection().document(self._document_id).update(dictionary)
+
+            # Firestore returns metadata about the operation, but, unhelpfully, not the document itself.
+            # This means every write will need to get a re-read, unfortunately - there's no other way I know
+            # of to get e.g. server side values like server timestamps.
+            self.read()
+        # TODO: put is used to delete items (create and update will only append keys). How to handle
+        # this semantic, where put should only be used for, well, PUT-http-like semantics where the
+        # whole current state of the doc in memory is the canonical one?
+        return True
+
+
+    ## Reading methods
+
+    def before_deserialize(self, d = {}):
+        return d
+
+    def after_deserialize(self, d):
+        # TODO: Should this return a copy of dict or the modified dict?
+        # should we get or pop?
+
+        # It should always be true that t_crte exists, at least for all subclasses
+        # of this class.
+        self.creation_timestamp = d.pop("t_crte")
+        self._additional_attributes = d.copy()
+        return d
+
+    def deserialize(self, d = {}):
+        '''
+        Serialize, including before and after callbacks.
+        '''
+        self.before_deserialize(d)
+        # Delegated method to subclass implementers
+        self.from_dict(d)
+        self.after_deserialize(d)
+        return self
+
+    def from_dict(self, d):
+        '''
+        This is the method subclasses should implement in order to convert their properties from a dictionary.
+        '''
+        raise "Subclasses must implement"
+
+    def read(self):
+        '''
+        Read data for this instance to the DB.
+        This can (will probably) destroy any local data to get up to date with the DB.
+        '''
+        doc_ref = self.__class__.collection().document(self._document_id)
+        snapshot = doc_ref.get()
+        if not snapshot.exists:
+            return None
+        self.deserialize(snapshot.to_dict())
+        self._snapshot = snapshot
+        return self
+
+
+
+class Candidate(ModelBase):
     @classmethod
-    def upsert(cls, value):
-        '''
-        For now, this is implemented in Python logic, which is race-condition-y, but I don't care because that's edge casey enough
-        to accept. I don't even know if sqlite has an upsert...
+    def collection_name(cls):
+        return "candidates"
 
-        Also, page doesn't have much data to update, but it might in the future.
-        '''
+    def __init__(self, name, *args, **kwargs):
+        super().__init__(name, *args, **kwargs)
+        self.name = name
+        self.num_votes = 0
 
-        instance = cls.query().filter(getattr(cls, cls._upsert_key) == value).one_or_none()
-        if not instance:
-            instance = cls()
-            setter = setattr(instance, cls._upsert_key, value)
-            Storage.session().add(instance)
-            Storage.session().commit()
-        return instance
+    def to_dict(self, d = {}):
+        d.update({
+            "test": "Not really a very useful piece of data",
+            "num_votes": self.num_votes
+                 })
+        return d
 
-'''
-This is a "regular" association table for a transparent many-to-many join in sqlalchemy (https://docs.sqlalchemy.org/en/20/orm/basic_relationships.html#setting-bi-directional-many-to-many)
-Each candidate can be in multiple elections and each election has multiple candidates.
-'''
-candidate_election_join_table = Table(
-        "voting.candidate_election",
-        Base.metadata,
-        Column("candidate_id", ForeignKey("voting.candidates.id"), primary_key=True),
-        Column("election_id", ForeignKey("voting.elections.id"), primary_key=True)
-        )
+    def from_dict(self, d):
+        # Pull out self attributes and return the remaining attrs
+        self.num_votes = d.pop("num_votes")
 
-'''
-This is a "regular" association table for a transparent many-to-many join in sqlalchemy (https://docs.sqlalchemy.org/en/20/orm/basic_relationships.html#setting-bi-directional-many-to-many)
-Each candidate can be in multiple categories and each category has multiple candidates.
-'''
+    def __repr__(self):
+        return f"Candidate: {self.name}, num_votes: {self.num_votes} || add_at: {self._additional_attributes}"
 
-candidate_category_join_table = Table(
-        "voting.candidate_categories",
-        Base.metadata,
-        Column("candidate_id", ForeignKey("voting.candidates.id"), primary_key=True),
-        Column("category_id", ForeignKey("voting.categories.id"), primary_key=True)
-        )
-
-class Candidate(Base, Upsertable, Trashable, CreationTimeable):
-    '''
-    An option to vote on; for instance, if voting on food genera, this could be e.g. "Italian"
-    '''
-    __tablename__ = "voting.candidates"
-    id = Column(String, primary_key=True, server_default=func.generate_uuid())
-    name = Column(String, nullable=False, unique=True)
-    elections = relationship("Election", secondary=candidate_election_join_table, back_populates="candidates")
-    categories = relationship("Category", secondary=candidate_category_join_table, back_populates="candidates")
-    votes = relationship("Vote", back_populates="candidate")
-
-
-class ElectionState(Base, Upsertable, Trashable, CreationTimeable):
-    '''
-    Basically an enum for the state of the election process.
-    We could have this be a simple string, but eh. It's nicer to have this configurable.
-    '''
-
-    _upsert_key = "name"
-    __tablename__ = "voting.election_states"
-    id = Column(String, primary_key=True, server_default=func.generate_uuid())
-    name = Column(String, nullable = False)
-
-class Election(Base, Queryable, Trashable, CreationTimeable):
-    '''
-    The overarching model for a series of votes.
-
-    An Election contains a number of Candidates, then a Ballot for deciding outcomes is given to each User. At the end of the Election,
-    the net result of all Ballots will dictate the ordering of the Choices for that election.
-
-    Basically, the start of every Voter sequence is creation of a new Election.
-    '''
-    __tablename__ = "voting.elections"
-    id = Column(String, primary_key=True, server_default=func.generate_uuid())
-    name = Column(String, nullable=False)
-    # stores the process of the election; i.e. "created" vs. "populated" vs. "running" vs. "closed", what have you.
-    process_state = Column(String, nullable=False)
-    candidates = relationship(Candidate, secondary=candidate_election_join_table, back_populates="elections")
-    votes = relationship("Vote", back_populates="election")
-
-
-class Category(Base, Upsertable, Trashable, CreationTimeable):
-    '''
-    To simplify creating a new Election each Candidate is mapped to a CandidateCategory. We can just therefore ask to
-    instantiate a new "Restaurant" category, say, and a new Election will be created with all Candidates that are in that
-    category.
-    '''
-
-    _upsert_key = "name"
-    __tablename__ = "voting.categories"
-
-    id = Column(String, primary_key=True, server_default=func.generate_uuid())
-    name = Column(String, nullable=False, unique=True)
-    candidates = relationship("Candidate", secondary=candidate_category_join_table, back_populates="categories")
-
-class Vote(Base, Queryable, Trashable, CreationTimeable):
-    '''
-    A collection of voting choices that is assigned to a user and represents a vote of their choices.
-    Essentially a join model between Election and Candidate and User that scores a Candidate in that Election for that User.
-    '''
-    __tablename__ = "voting.votes"
-    id = Column(String, primary_key=True, server_default=func.generate_uuid())
-    candidate_id = Column(ForeignKey("voting.candidates.id"), primary_key=True)
-    candidate = relationship(Candidate, back_populates="votes")
-    election_id = Column(ForeignKey("voting.elections.id"), primary_key=True)
-    election = relationship(Election, back_populates="votes")
-    # For comparison counted sort this is essentially a 0 or 1, but keep it flexible as an int.
-    score = Column(Integer, default=0)
+c = Candidate("7-11")
+print(c)
+c.read()
+print(c)
+c.save()
+print(c)
+c.num_votes = 5
+print(c)
+c.save()
+print(c)
