@@ -39,13 +39,19 @@ class ModelBase:
     class SyncTransactionFailed(Exception):
         pass
 
+    class RequiredMethodNotImplemented(NotImplementedError):
+        pass
+
+    class SubclassRequirementsTypeError(TypeError):
+        pass
+
     @classmethod
     def collection_name(cls):
         '''
         Subclasses should implement this. Then it can be used to do something like MyModel.collection() to
         get the Firebase collection.
         '''
-        raise "Subclasses should implement"
+        raise ModelBase.RequiredMethodNotImplemented("Subclasses should implement")
 
     @classmethod
     def collection(cls):
@@ -110,6 +116,8 @@ class ModelBase:
         d = self.before_serialize()
         # Delegated method to subclass implementers
         d = self.to_dict(d)
+        if not isinstance(d, dict):
+            raise ModelBase.SubclassArgumentOrReturnError("to_dict override method must return a dict type")
         d = self.after_serialize(d)
         LOG.trace("...serialization complete")
         return d
@@ -118,7 +126,7 @@ class ModelBase:
         '''
         This is the method subclasses should implement in order to convert their properties to a dictionary.
         '''
-        raise "Subclasses must implement"
+        raise ModelBase.RequiredMethodNotImplemented("Subclasses should implement")
 
     def sync(self):
         '''
@@ -231,7 +239,7 @@ class ModelBase:
         '''
         This is the method subclasses should implement in order to convert their properties from a dictionary.
         '''
-        raise "Subclasses must implement"
+        raise RequiredMethodNotImplemented("Subclasses should implement")
 
     def read(self):
         '''
@@ -245,6 +253,30 @@ class ModelBase:
         self._snapshot = snapshot
         self.deserialize()
         return self
+
+class CollectionDeleteable():
+    """
+    To delete an entire collection or subcollection in Cloud Firestore, retrieve (read) all the documents within the collection or subcollection and delete them.
+    https://firebase.google.com/docs/firestore/manage-data/delete-data#collections
+
+    So let's make this a mixin outside of non-delete-all-collection contexts.
+    Must also be mixed in with ModelBase
+    """
+
+    @classmethod
+    def delete_all_documents_in_collection(cls):
+        """
+        Making the name somewhat awkward on purpose to be really clear what is going to happen.
+        """
+        psize = 100
+        # On the documentation page https://firebase.google.com/docs/firestore/manage-data/delete-data#collections
+        # they do this recursively . It's not clear to me why; I think the generator will keep supplying documents
+        # though the whole collection even if it's larger than page_size even if multiple fetches happen on the backend.
+        # So we should just be able to stream through the whole thing.
+        docs = cls.collection().list_documents(page_size=psize)
+        for doc in docs:
+            LOG.trace(f"Deleting doc {doc.id}")
+            doc.delete()
 
 class Candidate(ModelBase):
     '''
